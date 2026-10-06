@@ -1,0 +1,9 @@
+[project]
+name = "newline-fixer"
+version = "0.1.0"
+description = "ML service that restores newline placement in English text"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
