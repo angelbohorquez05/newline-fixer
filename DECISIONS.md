@@ -73,3 +73,24 @@ Progress over time is tracked by git history (`git log`).
 - **Alternatives:** Mixing several corpora (FineWeb-Edu + arXiv).
 - **Reason:** One source keeps the pipeline simple, and Cosmopedia is the only candidate with reliable paragraph
   structure. If the real-PDF test set shows weak results on papers, arXiv will be added as a documented iteration.
+
+### D6 — Metrics and baselines
+**2026-10-07 07:30**
+
+- **Context:** `SPACE` is ~95% of the gaps, so accuracy is misleading: returning the input unchanged already scores ~91%.
+- **Decision:** Report precision, recall and F1 per label, macro-F1 over the four labels (main metric),
+  document exact match and per-document latency (p50 / p95). Two baselines set the bar:
+  - `identity`: returns the input unchanged.
+  - `heuristic`: hand-written rules (bullets start a line; a break inside a word known from the train set is a `JOIN`;
+    a line shorter than 70% of the text width ended on purpose). The 70% threshold was tuned on val
+    (macro-F1 0.654 at 50%, 0.675 at 70%, 0.621 at 90%).
+- **Results (synthetic test, 992 documents):**
+
+  | System | JOIN F1 | NEWLINE F1 | PARAGRAPH F1 | Macro-F1 | Exact match |
+  |---|---|---|---|---|---|
+  | identity | 0.00 | 0.07 | 0.00 | 0.254 | 0.0% |
+  | heuristic | 0.76 | 0.54 | 0.43 | 0.682 | 0.7% |
+
+- **Reason:** A learned model is only worth its cost if it clearly beats simple rules. The heuristic shows where the
+  difficulty is: `JOIN` is precise but misses splits whose two pieces are real words, and real breaks inside
+  full-width lines or glued to the next word (`Model The Transformer`) cannot be detected from layout alone.
