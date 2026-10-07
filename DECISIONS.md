@@ -42,3 +42,34 @@ Progress over time is tracked by git history (`git log`).
 - **Decision:** `src/` layout; runtime dependencies in `requirements.txt`, development ones in `requirements-dev.txt`;
   model weights stored on Hugging Face Hub, not in git.
 - **Reason:** Smaller Docker image, tests import the package as a user would, and the repository stays light.
+
+### D5 — Use Cosmopedia as the single source of clean text
+**2026-10-07 07:00**
+
+- **Context:** The corruption (D2) needs well-formatted English text whose line and paragraph breaks are meaningful.
+- **Evidence:** 100-300 documents sampled per candidate source.
+
+  | Source | Finding |
+  |---|---|
+  | FineWeb-Edu | Every break is a single `\n` (0% `PARAGRAPH`): cannot teach paragraphs |
+  | peS2o | Does not load with `datasets` 5.x (legacy loading script) |
+  | arXiv (Common Pile) | Closest to papers, but Markdown hard-wrapped at ~80 characters; lines would need rebuilding |
+  | Cosmopedia | Clean paragraphs, headings and lists |
+
+  Cosmopedia subsets, 200 documents each:
+
+  | Subset | NEWLINE | PARAGRAPH | Docs with lists | Docs with headings | Docs with Markdown |
+  |---|---|---|---|---|---|
+  | `stanford` | 0.80% | 2.08% | 89 | 43 | 59 |
+  | `openstax` | 0.55% | 2.38% | 70 | 44 | 112 |
+  | `wikihow` | 2.14% | 2.85% | 148 | 56 | 100 |
+  | `web_samples_v2` | 0.52% | 1.58% | 63 | 12 | 25 |
+
+- **Decision:** Mix the four subsets in equal parts: textbooks bring headings and document structure,
+  `wikihow` brings lists, `web_samples_v2` brings plain prose. Markdown is stripped (`clean.py`):
+  heading marks, bold markers and rules removed, bullets turned into `•`. Documents with code blocks or tables are skipped.
+  Texts are cut into chunks of 150-300 words (below the 512-token limit) and split 90/5/5 by document, so no
+  document leaks across splits.
+- **Alternatives:** Mixing several corpora (FineWeb-Edu + arXiv).
+- **Reason:** One source keeps the pipeline simple, and Cosmopedia is the only candidate with reliable paragraph
+  structure. If the real-PDF test set shows weak results on papers, arXiv will be added as a documented iteration.
