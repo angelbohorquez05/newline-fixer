@@ -49,3 +49,28 @@ def decode(words: list[str], labels: list[Label]) -> str:
     if not words:
         return ""
     return words[0] + "".join(SEPARATOR[Label(l)] + w for l, w in zip(labels, words[1:]))
+
+
+def align(broken: str, fixed: str) -> tuple[list[str], list[bool], list[Label]]:
+    """Gold labels of a hand-corrected text: `fixed` must be `broken` with only whitespace changed.
+
+    Returns the model input (words, breaks) of `broken` and one label per gap, read from `fixed`.
+    """
+    words, breaks = split_input(broken)
+    labels, pos = [], 0
+    for i, word in enumerate(words):
+        if not fixed.startswith(word, pos):
+            raise ValueError(f"corrected text differs from the input near {word!r}")
+        pos += len(word)
+        if i < len(breaks):
+            gap = re.match(r"\s*", fixed[pos:]).group()
+            pos += len(gap)
+            labels.append(
+                Label.JOIN if not gap
+                else Label.PARAGRAPH if gap.count("\n") >= 2
+                else Label.NEWLINE if "\n" in gap
+                else Label.SPACE
+            )
+    if fixed[pos:].strip():
+        raise ValueError("corrected text has extra content at the end")
+    return words, breaks, labels

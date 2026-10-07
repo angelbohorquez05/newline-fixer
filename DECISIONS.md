@@ -1,50 +1,33 @@
 # Decision log
 
-Key technical decisions, newest last. Each entry: context, decision, alternatives considered, reason.
+Key technical decisions, newest first. Each entry: context, decision, alternatives considered, reason.
 Progress over time is tracked by git history (`git log`).
 
 ---
 
-### D1 — Frame the task as gap classification, not text generation
-**2026-10-06 15:05**
+### D6 — Metrics and baselines
+**2026-10-07**
 
-- **Context:** Only whitespace is wrong in the input; the words themselves are correct.
-- **Decision:** Split the text into words and predict, for every gap between two consecutive words, one of
-  `SPACE`, `JOIN` (no separator, a word broken across lines), `NEWLINE` or `PARAGRAPH` (blank line).
-- **Alternatives:** seq2seq / LLM rewriting the whole text; pure rule-based heuristics.
-- **Reason:** The model cannot alter or hallucinate words, inference is a single forward pass (fast),
-  and per-label precision/recall gives clear metrics. `JOIN` is only allowed where the input had a line break.
+- **Context:** `SPACE` is ~95% of the gaps, so accuracy is misleading: returning the input unchanged already scores ~91%.
+- **Decision:** Report precision, recall and F1 per label, macro-F1 over the four labels (main metric),
+  document exact match and per-document latency (p50 / p95). Two baselines set the bar:
+  - `identity`: returns the input unchanged.
+  - `heuristic`: hand-written rules (bullets start a line; a break inside a word known from the train set is a `JOIN`;
+    a line shorter than 70% of the text width ended on purpose). The 70% threshold was tuned on val
+    (macro-F1 0.654 at 50%, 0.675 at 70%, 0.621 at 90%).
+- **Results (synthetic test, 992 documents):**
 
-### D2 — Build a synthetic training set
-**2026-10-06 15:05**
+  | System | JOIN F1 | NEWLINE F1 | PARAGRAPH F1 | Macro-F1 | Exact match |
+  |---|---|---|---|---|---|
+  | identity | 0.00 | 0.07 | 0.00 | 0.254 | 0.0% |
+  | heuristic | 0.76 | 0.54 | 0.43 | 0.682 | 0.7% |
 
-- **Context:** No dataset is provided.
-- **Decision:** Take well-formatted English text and corrupt it to mimic PDF extraction
-  (hard wrapping at random widths, words split across lines, merged paragraphs, headings and bullets glued to text).
-  The original text is the target.
-- **Alternatives:** Hand-labelling real PDF text (slow, small).
-- **Reason:** Unlimited labelled data for free. A small hand-made set from real PDFs is kept for evaluation only,
-  to check the model generalises beyond the synthetic distribution.
-
-### D3 — Fine-tune a small pretrained encoder for token classification
-**2026-10-06 15:05**
-
-- **Context:** The service must answer efficiently; training on free GPUs (Colab).
-- **Decision:** Fine-tune a small transformer encoder with a token-classification head.
-- **Alternatives:** Large LLM via prompting (slow, costly, may rewrite text); training from scratch (needs far more data).
-- **Reason:** Good accuracy/latency trade-off and runs on CPU in production.
-  Related prior work: punctuation restoration as token classification (`fullstop-punctuation-multilang`)
-  and newline-based text segmentation (`wtpsplit` / SaT).
-
-### D4 — Project layout and dependencies
-**2026-10-06 15:05**
-
-- **Decision:** `src/` layout; runtime dependencies in `requirements.txt`, development ones in `requirements-dev.txt`;
-  model weights stored on Hugging Face Hub, not in git.
-- **Reason:** Smaller Docker image, tests import the package as a user would, and the repository stays light.
+- **Reason:** A learned model is only worth its cost if it clearly beats simple rules. The heuristic shows where the
+  difficulty is: `JOIN` is precise but misses splits whose two pieces are real words, and real breaks inside
+  full-width lines or glued to the next word (`Model The Transformer`) cannot be detected from layout alone.
 
 ### D5 — Use Cosmopedia as the single source of clean text
-**2026-10-07 07:00**
+**2026-10-07**
 
 - **Context:** The corruption (D2) needs well-formatted English text whose line and paragraph breaks are meaningful.
 - **Evidence:** 100-300 documents sampled per candidate source.
@@ -74,23 +57,40 @@ Progress over time is tracked by git history (`git log`).
 - **Reason:** One source keeps the pipeline simple, and Cosmopedia is the only candidate with reliable paragraph
   structure. If the real-PDF test set shows weak results on papers, arXiv will be added as a documented iteration.
 
-### D6 — Metrics and baselines
-**2026-10-07 07:30**
+### D4 — Project layout and dependencies
+**2026-10-06**
 
-- **Context:** `SPACE` is ~95% of the gaps, so accuracy is misleading: returning the input unchanged already scores ~91%.
-- **Decision:** Report precision, recall and F1 per label, macro-F1 over the four labels (main metric),
-  document exact match and per-document latency (p50 / p95). Two baselines set the bar:
-  - `identity`: returns the input unchanged.
-  - `heuristic`: hand-written rules (bullets start a line; a break inside a word known from the train set is a `JOIN`;
-    a line shorter than 70% of the text width ended on purpose). The 70% threshold was tuned on val
-    (macro-F1 0.654 at 50%, 0.675 at 70%, 0.621 at 90%).
-- **Results (synthetic test, 992 documents):**
+- **Decision:** `src/` layout; runtime dependencies in `requirements.txt`, development ones in `requirements-dev.txt`;
+  model weights stored on Hugging Face Hub, not in git.
+- **Reason:** Smaller Docker image, tests import the package as a user would, and the repository stays light.
 
-  | System | JOIN F1 | NEWLINE F1 | PARAGRAPH F1 | Macro-F1 | Exact match |
-  |---|---|---|---|---|---|
-  | identity | 0.00 | 0.07 | 0.00 | 0.254 | 0.0% |
-  | heuristic | 0.76 | 0.54 | 0.43 | 0.682 | 0.7% |
+### D3 — Fine-tune a small pretrained encoder for token classification
+**2026-10-06**
 
-- **Reason:** A learned model is only worth its cost if it clearly beats simple rules. The heuristic shows where the
-  difficulty is: `JOIN` is precise but misses splits whose two pieces are real words, and real breaks inside
-  full-width lines or glued to the next word (`Model The Transformer`) cannot be detected from layout alone.
+- **Context:** The service must answer efficiently; training on free GPUs (Colab).
+- **Decision:** Fine-tune a small transformer encoder with a token-classification head.
+- **Alternatives:** Large LLM via prompting (slow, costly, may rewrite text); training from scratch (needs far more data).
+- **Reason:** Good accuracy/latency trade-off and runs on CPU in production.
+  Related prior work: punctuation restoration as token classification (`fullstop-punctuation-multilang`)
+  and newline-based text segmentation (`wtpsplit` / SaT).
+
+### D2 — Build a synthetic training set
+**2026-10-06**
+
+- **Context:** No dataset is provided.
+- **Decision:** Take well-formatted English text and corrupt it to mimic PDF extraction
+  (hard wrapping at random widths, words split across lines, merged paragraphs, headings and bullets glued to text).
+  The original text is the target.
+- **Alternatives:** Hand-labelling real PDF text (slow, small).
+- **Reason:** Unlimited labelled data for free. A small hand-made set from real PDFs is kept for evaluation only,
+  to check the model generalises beyond the synthetic distribution.
+
+### D1 — Frame the task as gap classification, not text generation
+**2026-10-06**
+
+- **Context:** Only whitespace is wrong in the input; the words themselves are correct.
+- **Decision:** Split the text into words and predict, for every gap between two consecutive words, one of
+  `SPACE`, `JOIN` (no separator, a word broken across lines), `NEWLINE` or `PARAGRAPH` (blank line).
+- **Alternatives:** seq2seq / LLM rewriting the whole text; pure rule-based heuristics.
+- **Reason:** The model cannot alter or hallucinate words, inference is a single forward pass (fast),
+  and per-label precision/recall gives clear metrics. `JOIN` is only allowed where the input had a line break.

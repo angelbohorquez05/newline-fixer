@@ -1,6 +1,7 @@
 """Compare systems on a dataset split: per-label precision/recall/F1, macro-F1, exact match, latency.
 
 Usage: python scripts/evaluate.py [--data data/generated] [--split test]
+       python scripts/evaluate.py --split real    # hand-corrected PDF excerpts in data/real/
 """
 
 import argparse
@@ -11,13 +12,26 @@ from functools import partial
 from pathlib import Path
 
 from newline_fixer.baselines import heuristic, identity, vocabulary
-from newline_fixer.labels import Label, decode
+from newline_fixer.labels import Label, align, decode
 from newline_fixer.metrics import evaluate
 
 
 def load(path: Path) -> list[dict]:
     with open(path, encoding="utf-8") as f:
         return [json.loads(line) for line in f]
+
+
+def load_real(folder: Path) -> list[dict]:
+    """Pairs NN.input.txt (as pasted from the PDF) / NN.target.txt (corrected by hand)."""
+    samples = []
+    for broken in sorted(folder.glob("*.input.txt")):
+        fixed = broken.with_name(broken.name.replace(".input.txt", ".target.txt"))
+        try:
+            words, breaks, labels = align(broken.read_text("utf-8-sig"), fixed.read_text("utf-8-sig"))
+        except ValueError as e:
+            raise ValueError(f"{broken.name}: {e}") from None
+        samples.append({"words": words, "breaks": breaks, "labels": labels})
+    return samples
 
 
 def run(system, samples: list[dict]) -> tuple[list, list[float]]:
@@ -36,7 +50,10 @@ def main() -> None:
     parser.add_argument("--split", default="test")
     args = parser.parse_args()
 
-    samples = load(args.data / f"{args.split}.jsonl")
+    if args.split == "real":
+        samples = load_real(Path("data/real"))
+    else:
+        samples = load(args.data / f"{args.split}.jsonl")
     vocab = vocabulary(decode(s["words"], s["labels"]) for s in load(args.data / "train.jsonl"))
     systems = {"identity": identity, "heuristic": partial(heuristic, vocab=vocab)}
 
